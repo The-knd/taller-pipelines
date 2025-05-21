@@ -11,7 +11,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    - name: Deploy PostgreSQL container on EC2 without saving SSH key
+    - name: Deploy PostgreSQL container on EC2
       env:
         EC2_HOST: ${{ secrets.EC2_HOST }}
         EC2_USER: ${{ secrets.EC2_USER }}
@@ -20,16 +20,22 @@ jobs:
         POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
       run: |
-        echo "$EC2_SSH_KEY" | ssh \
-          -o StrictHostKeyChecking=no \
-          -i /dev/stdin \
-          $EC2_USER@$EC2_HOST \
-          "docker stop postgresql-dev || true && \
-           docker rm postgresql-dev || true && \
-           docker run -d \
-             --name postgresql-dev \
-             -e POSTGRES_USER=${POSTGRES_USER} \
-             -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
-             -e POSTGRES_DB=${POSTGRES_DB} \
-             -p 5432:5432 \
-             postgres:15"
+        # Guardar la clave en un archivo temporal
+        echo "$EC2_SSH_KEY" > temp_key.pem
+        chmod 600 temp_key.pem
+
+        # Ejecutar SSH con la clave temporal
+        ssh -o StrictHostKeyChecking=no -i temp_key.pem $EC2_USER@$EC2_HOST << EOF
+          docker stop postgresql-dev || true
+          docker rm postgresql-dev || true
+          docker run -d \
+            --name postgresql-dev \
+            -e POSTGRES_USER=${POSTGRES_USER} \
+            -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
+            -e POSTGRES_DB=${POSTGRES_DB} \
+            -p 5432:5432 \
+            postgres:15
+        EOF
+
+        # Borrar la clave temporal
+        rm -f temp_key.pem
