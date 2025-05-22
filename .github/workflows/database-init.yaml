@@ -1,39 +1,35 @@
 name: Load SQL Data into PostgreSQL on EC2
 
-# Este workflow puede activarse manualmente o automáticamente al hacer push a la rama main
 on:
-  workflow_dispatch:  # Activación manual desde la interfaz de GitHub
+  workflow_dispatch:  # Activación manual desde GitHub
   push:
     branches:
-      - main          # Activación automática al hacer push a main
+      - main           # Activación automática al hacer push a la rama main
 
 jobs:
   load_data:
-    runs-on: ubuntu-latest  # El job se ejecuta en un runner de GitHub con Ubuntu
+    runs-on: ubuntu-latest  # El job corre en un runner Linux proporcionado por GitHub
 
     steps:
-    # Paso 1: Clona el repositorio para acceder a los archivos SQL
+    # Paso 1: Clona el repositorio para acceder al archivo DBini.sql
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # Paso 2: Crea un archivo temporal con la clave SSH privada para conectar a la EC2
+    # Paso 2: Crear y proteger el archivo temporal con la clave SSH
     - name: Set up SSH key
       run: |
-        echo "${{ secrets.EC2_SSH_KEY }}" > temp_key.pem  # Guarda la clave como archivo
-        chmod 600 temp_key.pem  # Establece los permisos correctos requeridos por SSH
+        echo "${{ secrets.EC2_SSH_KEY }}" > temp_key.pem
+        chmod 600 temp_key.pem
 
-    # Paso 3: Copia el archivo .sql desde el runner local hacia la instancia EC2 usando scp
-    - name: Copy SQL files to EC2 container
+    # Paso 3: Copiar archivo SQL desde el repositorio local al sistema EC2
+    - name: Copy SQL file to EC2
       env:
-        EC2_USER: ${{ secrets.EC2_USER }}        # Usuario SSH (ej: ec2-user, ubuntu)
-        EC2_HOST: ${{ secrets.EC2_HOST }}        # Dirección IP pública o DNS de la EC2
-        POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-        POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+        EC2_USER: ${{ secrets.EC2_USER }}
+        EC2_HOST: ${{ secrets.EC2_HOST }}
       run: |
-        # Añadimos StrictHostKeyChecking=no para evitar error de verificación del host
         scp -o StrictHostKeyChecking=no -i temp_key.pem ./sql/DBini.sql $EC2_USER@$EC2_HOST:/tmp/DBini.sql
 
-    # Paso 4: Conexión por SSH a la EC2 para copiar el archivo al contenedor y ejecutarlo con psql
+    # Paso 4: Ejecutar el SQL dentro del contenedor PostgreSQL en EC2
     - name: Execute SQL file in PostgreSQL container
       env:
         EC2_USER: ${{ secrets.EC2_USER }}
@@ -42,21 +38,24 @@ jobs:
         POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
       run: |
         ssh -o StrictHostKeyChecking=no -i temp_key.pem $EC2_USER@$EC2_HOST << EOF
-          # Copiamos el archivo SQL desde el sistema EC2 al contenedor Docker
+          # Copiar el archivo desde el sistema EC2 al contenedor
           docker cp /tmp/DBini.sql postgresql-dev:/tmp/DBini.sql
 
-          # Ejecutamos el archivo .sql dentro del contenedor usando el cliente psql
+          # Ejecutar el archivo SQL dentro del contenedor usando psql
           docker exec -i postgresql-dev psql \
             -U ${POSTGRES_USER} \
             -d ${POSTGRES_DB} \
             -f /tmp/DBini.sql
         EOF
 
-    # Paso 5: Limpieza del entorno para seguridad
-    - name: Clean up
+    # Paso 5: Limpieza de archivos temporales
+    - name: Clean up SSH key and SQL file
+      env:
+        EC2_USER: ${{ secrets.EC2_USER }}
+        EC2_HOST: ${{ secrets.EC2_HOST }}
       run: |
-        rm -f temp_key.pem  # Elimina la clave SSH del runner por seguridad
+        # Eliminar archivo temporal de clave SSH
+        rm -f temp_key.pem
 
-        # También borramos el archivo SQL del sistema EC2
-        ssh -o StrictHostKeyChecking=no -i temp_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-          "rm -f /tmp/DBini.sql"
+        # Eliminar archivo SQL de la EC2 para no dejar basura
+        ssh -o StrictHostKeyChecking=no -i temp_key.pem $EC2_USER@$EC2_HOST "rm -f /tmp/DBini.sql" || true
