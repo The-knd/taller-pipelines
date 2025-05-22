@@ -30,8 +30,8 @@ jobs:
         POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
         POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
       run: |
-        scp -i temp_key.pem ./sql/DBini.sql $EC2_USER@$EC2_HOST:/tmp/DBini.sql
-        # El archivo DBini.sql se envía a la carpeta /tmp en la EC2
+        # Añadimos StrictHostKeyChecking=no para evitar error de verificación del host
+        scp -o StrictHostKeyChecking=no -i temp_key.pem ./sql/DBini.sql $EC2_USER@$EC2_HOST:/tmp/DBini.sql
 
     # Paso 4: Conexión por SSH a la EC2 para copiar el archivo al contenedor y ejecutarlo con psql
     - name: Execute SQL file in PostgreSQL container
